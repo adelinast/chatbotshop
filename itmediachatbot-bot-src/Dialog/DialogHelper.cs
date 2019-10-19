@@ -3,12 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Data.SqlClient;
 using Microsoft.Bot.Builder.AI.QnA;
 using Microsoft.Bot.Builder.Dialogs;
-//using Microsoft.Azure.CognitiveServices.Knowledge.QnAMaker;
-//using Microsoft.Azure.CognitiveServices.Knowledge.QnAMaker.Models;
 using Newtonsoft.Json;
-
+using Microsoft.Bot.Builder;
 namespace Microsoft.BotBuilderSamples
 {
     /// <summary>
@@ -41,7 +40,18 @@ namespace Microsoft.BotBuilderSamples
         private const string cardTitle = "Did you mean:";
         private const string cardNoMatchText = "None of the above.";
         private const string cardNoMatchResponse = "Thanks for the feedback.";
-
+        
+        //input to ML Studio
+        string[] input_smartphones = new string[8];
+        string[] input_laptops = new string[14];
+        //DB Connection
+        static int index = 0;
+        static int userid = 1;
+        static int employeeid = 2;
+        string IdClient = "";
+        string IdComanda = "";
+        string sum = "";
+        SqlDataReader reader = null;
         /// <summary>
         /// Dialog helper to generate dialogs
         /// </summary>
@@ -54,6 +64,15 @@ namespace Microsoft.BotBuilderSamples
                 .AddStep(CallTrain)
                 .AddStep(DisplayQnAResult);
             _services = services;
+            
+            for (int i = 0; i < 14; i++)
+            {
+                input_laptops[i] = "0";
+            }
+            for (int i = 0; i < 8; i++)
+            {
+                input_smartphones[i] = "0";
+            }
         }
 
         private async Task<DialogTurnResult> CallGenerateAnswer(WaterfallStepContext stepContext, CancellationToken cancellationToken)
@@ -157,17 +176,101 @@ namespace Microsoft.BotBuilderSamples
 
         private async Task<DialogTurnResult> DisplayQnAResult(WaterfallStepContext stepContext, CancellationToken cancellationToken)
         {
+            return await DBSendResults(stepContext, cancellationToken);
+        }
+        
+        private async Task<DialogTurnResult> DBSendResults(WaterfallStepContext stepContext, CancellationToken cancellationToken)
+       {
+            //var response = await qnaMaker.GetAnswersAsync(turnContext);
+            //if (response != null && response.Length > 0)
             if (stepContext.Result is List<QueryResult> response && response.Count > 0)
             {
                 await stepContext.Context.SendActivityAsync(response[0].Answer, cancellationToken: cancellationToken);
+                if (response[0].Answer.Contains("I will open an order request"))
+                {
+
+                    //  Method to update the order id
+                    // Create an entry in Comanda Table
+                    DBService.Instance.PostQueryAction("insert into Client (IdUser) values (" + userid + ")");
+
+                    // Get the Id of the new ClientID
+                    reader = DBService.Instance.GetQueryResult("select IdClient from Client where IdUser=" + userid);
+                    IdClient = reader.GetString(0);
+                    // Create entry in Comanda Table
+                    DBService.Instance.PostQueryAction("insert into Comanda (DataComanda, IdClient) values (select getdate(), " + IdClient + ")");
+                    reader = DBService.Instance.GetQueryResult("select IdComanda from Comanda where IdClient=" + IdClient);
+                    IdComanda = reader.GetString(0);
+                }
+                else if (response[0].Answer.Contains("Sure. I will show the shopping cart"))
+                {
+                    // Display cart command -> TODO
+                }
+                else if (response[0].Answer.Contains("finish the order"))
+                {
+                    // Finish order command - create entry in Chitanta table
+                    reader = DBService.Instance.GetQueryResult("select Pret from ContinutComanda where IdComanda=" + IdComanda);
+                    sum = reader.GetString(0);
+                    DBService.Instance.PostQueryAction("insert into Chitanta (DataChitanta, SumaPlatita, IdComanda, IdAngajat) values (select getdate(), " + sum + ", " + IdComanda + ", " + employeeid + ")");
+                }
+                else if (response[0].Answer.Contains("processor"))
+                {
+                    // Process the requests from ML Studio
+                    input_laptops[0] = "1";
+                }
+                else if (response[0].Answer.Contains("GPU"))
+                {
+                    input_laptops[2] = "1";
+                    input_laptops[9] = "Gaming";
+                    input_laptops[3] = "1";
+                    input_laptops[4] = "1";
+                }
+                else if (response[0].Answer.Contains("Cheap"))
+                {
+                    input_laptops[10] = "0.2";
+                }
+                else if (response[0].Answer.Contains("IT"))
+                {
+                    for (int i = 0; i < 14; i++)
+                    {
+                        input_laptops[i] = "1";
+                    }
+                }
+                else if (response[0].Answer.Contains("Business"))
+                {
+                    input_laptops[10] = "Bussines";
+                }
+
+                else if (response[0].Answer.Contains("request"))
+                {
+                    // Send Azure ML
+                    await AzureMLService.Instance.InvokeRequestForLaptopsData(input_laptops);
+                    string s = "I would recommend" + AzureMLService.Instance.result;
+                    await stepContext.Context.SendActivityAsync(MessageFactory.Text(s), cancellationToken);
+                }
             }
             else
             {
-                var msg = "No QnAMaker answers found.";
-                await stepContext.Context.SendActivityAsync(msg, cancellationToken: cancellationToken);
-            }
+                // Give the command
+                if (index == 0)
+                {
+                    index++;
+                    await stepContext.Context.SendActivityAsync(MessageFactory.Text("Sorry. I didn't get that. Can you rephrase it for me?"), cancellationToken);
+                }
 
+                else if (index == 1)
+                {
+                    index++;
+                    await stepContext.Context.SendActivityAsync(MessageFactory.Text("Can you say it again. I couldn't understand."), cancellationToken);
+                }
+
+                else
+                {
+                    index = 0;
+                    await stepContext.Context.SendActivityAsync(MessageFactory.Text("Sorry. I don't know the answer."), cancellationToken);
+                }
+            }
+            
             return await stepContext.EndDialogAsync();
-        }
+       }
     }
 }
