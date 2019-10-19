@@ -41,17 +41,26 @@ namespace Microsoft.BotBuilderSamples
         private const string cardNoMatchText = "None of the above.";
         private const string cardNoMatchResponse = "Thanks for the feedback.";
         
+        private const string OrderReqMsg = "I will open an order request";
+        private const string RecommendMsg = "I would recommend";
+        
+        private const string RephraseMsg1 ="Sorry. I didn't get that. Can you rephrase it for me?";
+        private const string RephraseMsg2 ="Can you say it again. I couldn't understand.";
+        private const string RephraseMsg3 ="Sorry. I don't know the answer.";
+        private const int NrFeaturesLaptop = 14;
+        private const int NrFeaturesSmartphone = 8;
         //input to ML Studio
-        string[] input_smartphones = new string[8];
-        string[] input_laptops = new string[14];
+        string[] inputSmartphones = new string[8];
+        string[] inputLaptops = new string[14];
         //DB Connection
         static int index = 0;
         static int userid = 1;
         static int employeeid = 2;
         string IdClient = "";
-        string IdComanda = "";
+        string IdCommand = "";
         string sum = "";
         SqlDataReader reader = null;
+        
         /// <summary>
         /// Dialog helper to generate dialogs
         /// </summary>
@@ -65,13 +74,13 @@ namespace Microsoft.BotBuilderSamples
                 .AddStep(DisplayQnAResult);
             _services = services;
             
-            for (int i = 0; i < 14; i++)
+            for (int i = 0; i < NrFeaturesLaptop; i++)
             {
-                input_laptops[i] = "0";
+                inputLaptops[i] = "0";
             }
-            for (int i = 0; i < 8; i++)
+            for (int i = 0; i < NrFeaturesSmartphone; i++)
             {
-                input_smartphones[i] = "0";
+                inputSmartphones[i] = "0";
             }
         }
 
@@ -180,15 +189,12 @@ namespace Microsoft.BotBuilderSamples
         }
         
         private async Task<DialogTurnResult> DBSendResults(WaterfallStepContext stepContext, CancellationToken cancellationToken)
-       {
-            //var response = await qnaMaker.GetAnswersAsync(turnContext);
-            //if (response != null && response.Length > 0)
+        {
             if (stepContext.Result is List<QueryResult> response && response.Count > 0)
             {
                 await stepContext.Context.SendActivityAsync(response[0].Answer, cancellationToken: cancellationToken);
-                if (response[0].Answer.Contains("I will open an order request"))
+                if (response[0].Answer.Contains(OrderReqMsg))
                 {
-
                     //  Method to update the order id
                     // Create an entry in Comanda Table
                     DBService.Instance.PostQueryAction("insert into Client (IdUser) values (" + userid + ")");
@@ -199,7 +205,7 @@ namespace Microsoft.BotBuilderSamples
                     // Create entry in Comanda Table
                     DBService.Instance.PostQueryAction("insert into Comanda (DataComanda, IdClient) values (select getdate(), " + IdClient + ")");
                     reader = DBService.Instance.GetQueryResult("select IdComanda from Comanda where IdClient=" + IdClient);
-                    IdComanda = reader.GetString(0);
+                    IdCommand = reader.GetString(0);
                 }
                 else if (response[0].Answer.Contains("Sure. I will show the shopping cart"))
                 {
@@ -208,43 +214,42 @@ namespace Microsoft.BotBuilderSamples
                 else if (response[0].Answer.Contains("finish the order"))
                 {
                     // Finish order command - create entry in Chitanta table
-                    reader = DBService.Instance.GetQueryResult("select Pret from ContinutComanda where IdComanda=" + IdComanda);
+                    reader = DBService.Instance.GetQueryResult("select Pret from ContinutComanda where IdComanda=" + IdCommand);
                     sum = reader.GetString(0);
-                    DBService.Instance.PostQueryAction("insert into Chitanta (DataChitanta, SumaPlatita, IdComanda, IdAngajat) values (select getdate(), " + sum + ", " + IdComanda + ", " + employeeid + ")");
+                    DBService.Instance.PostQueryAction("insert into Chitanta (DataChitanta, SumaPlatita, IdComanda, IdAngajat) values (select getdate(), " + sum + ", " + IdCommand + ", " + employeeid + ")");
                 }
                 else if (response[0].Answer.Contains("processor"))
                 {
                     // Process the requests from ML Studio
-                    input_laptops[0] = "1";
+                    inputLaptops[0] = "1";
                 }
                 else if (response[0].Answer.Contains("GPU"))
                 {
-                    input_laptops[2] = "1";
-                    input_laptops[9] = "Gaming";
-                    input_laptops[3] = "1";
-                    input_laptops[4] = "1";
+                    inputLaptops[2] = "1";
+                    inputLaptops[9] = "Gaming";
+                    inputLaptops[3] = "1";
+                    inputLaptops[4] = "1";
                 }
                 else if (response[0].Answer.Contains("Cheap"))
                 {
-                    input_laptops[10] = "0.2";
+                    inputLaptops[10] = "0.2";
                 }
                 else if (response[0].Answer.Contains("IT"))
                 {
                     for (int i = 0; i < 14; i++)
                     {
-                        input_laptops[i] = "1";
+                        inputLaptops[i] = "1";
                     }
                 }
                 else if (response[0].Answer.Contains("Business"))
                 {
-                    input_laptops[10] = "Bussines";
+                    inputLaptops[10] = "Business";
                 }
-
                 else if (response[0].Answer.Contains("request"))
                 {
                     // Send Azure ML
-                    await AzureMLService.Instance.InvokeRequestForLaptopsData(input_laptops);
-                    string s = "I would recommend" + AzureMLService.Instance.result;
+                    await AzureMLService.Instance.InvokeRequestForLaptopsData(inputLaptops);
+                    string s = RecommendMsg + AzureMLService.Instance.result;
                     await stepContext.Context.SendActivityAsync(MessageFactory.Text(s), cancellationToken);
                 }
             }
@@ -254,19 +259,17 @@ namespace Microsoft.BotBuilderSamples
                 if (index == 0)
                 {
                     index++;
-                    await stepContext.Context.SendActivityAsync(MessageFactory.Text("Sorry. I didn't get that. Can you rephrase it for me?"), cancellationToken);
+                    await stepContext.Context.SendActivityAsync(MessageFactory.Text(RephraseMsg1), cancellationToken);
                 }
-
                 else if (index == 1)
                 {
                     index++;
-                    await stepContext.Context.SendActivityAsync(MessageFactory.Text("Can you say it again. I couldn't understand."), cancellationToken);
+                    await stepContext.Context.SendActivityAsync(MessageFactory.Text(RephraseMsg2), cancellationToken);
                 }
-
                 else
                 {
                     index = 0;
-                    await stepContext.Context.SendActivityAsync(MessageFactory.Text("Sorry. I don't know the answer."), cancellationToken);
+                    await stepContext.Context.SendActivityAsync(MessageFactory.Text(RephraseMsg3), cancellationToken);
                 }
             }
             
